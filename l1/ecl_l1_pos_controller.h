@@ -180,7 +180,7 @@ public:
 	 * @return sets _lateral_accel setpoint
 	 */
 	void navigate_waypoints(const math::Vector<2> &vector_A, const math::Vector<2> &vector_B, const math::Vector<2> &vector_curr_position,
-			   const math::Vector<2> &ground_speed, const float airspeed, const float heading);
+			   const math::Vector<2> &ground_speed, float airspeed, const float heading);
 
 
 	/**
@@ -193,7 +193,7 @@ public:
 	 * @return sets _lateral_accel setpoint
 	 */
 	void navigate_loiter(const math::Vector<2> &vector_A, const math::Vector<2> &vector_curr_position, float radius, int8_t loiter_direction,
-			   const math::Vector<2> &ground_speed_vector, const float airspeed, const float heading);
+			   const math::Vector<2> &ground_speed_vector, float airspeed, const float heading);
 
 
 	/**

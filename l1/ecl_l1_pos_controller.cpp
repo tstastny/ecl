@@ -86,7 +86,7 @@ float ECL_L1_Pos_Controller::crosstrack_error(void)
 }
 
 void ECL_L1_Pos_Controller::navigate_waypoints(const math::Vector<2> &vector_A, const math::Vector<2> &vector_B, const math::Vector<2> &vector_curr_position,
-				       const math::Vector<2> &ground_speed_vector, const float airspeed, const float heading)
+				       const math::Vector<2> &ground_speed_vector, float airspeed, const float heading)
 {
 
 	/* this follows the logic presented in [1] */
@@ -214,6 +214,7 @@ void ECL_L1_Pos_Controller::navigate_waypoints(const math::Vector<2> &vector_A, 
 		 * -this assumes no sideslip
 		 * -should probably be done with an observer if no EKF estimates of these values are available
 		 * */
+		if (airspeed < 1.0f) airspeed = 1.0f; // just a safe guard in case the loop is run while on ground
 		math::Vector<2> wind_speed_vector(ground_speed_vector(0) - airspeed * cosf(heading), ground_speed_vector(1) - airspeed * sinf(heading));
 		float wind_bearing = atan2f(wind_speed_vector(1), wind_speed_vector(0));
 		float wind_speed = wind_speed_vector.length();
@@ -251,7 +252,7 @@ void ECL_L1_Pos_Controller::navigate_waypoints(const math::Vector<2> &vector_A, 
 }
 
 void ECL_L1_Pos_Controller::navigate_loiter(const math::Vector<2> &vector_A, const math::Vector<2> &vector_curr_position, float radius, int8_t loiter_direction,
-				       const math::Vector<2> &ground_speed_vector, const float airspeed, const float heading)
+				       const math::Vector<2> &ground_speed_vector, float airspeed, const float heading)
 {
 	/* from [1] and [2] and modified/extended by [3] */
 	float eta;
@@ -303,6 +304,7 @@ void ECL_L1_Pos_Controller::navigate_loiter(const math::Vector<2> &vector_A, con
 		_nav_bearing = _wrap_pi(atan2f(-vector_A_to_airplane(1), -vector_A_to_airplane(0)) - float(loiter_direction) * gam);
 
 		/* estimate wind */ //NOTE: this assumes no sideslip
+		if (airspeed < 1.0f) airspeed = 1.0f; // just a safe guard in case the loop is run while on ground
 		math::Vector<2> wind_speed_vector(ground_speed_vector(0) - airspeed * cosf(heading), ground_speed_vector(1) - airspeed * sinf(heading));
 		float wind_bearing = atan2f(wind_speed_vector(1), wind_speed_vector(0));
 		float wind_speed = wind_speed_vector.length();
