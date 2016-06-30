@@ -55,6 +55,10 @@
  *     - Modified to enable period and damping of guidance loop to be set explicitly
  *     - Modified to provide explicit control over capture angle
  *
+ *    [3] Thomas Stastny, code modifications for L1 control in wind. July 2016.
+ *     - Removed PD switching for circle tracking, smaller loiter radii are tracked by automatically recalculating L1 ratio with reduced period
+ *     - L1 bearing tracking feasibility is calculated in windy cases, if infeasible, heading is controlled to face into the wind
+ *     - NOTE: requires airspeed sensor and magnetometer (for body-heading estimate).
  */
 
 #ifndef ECL_L1_POS_CONTROLLER_H
@@ -170,22 +174,26 @@ public:
 	 * the points and once captured following the line segment.
 	 * This follows the logic in [1].
 	 *
+	 * Handle windspeed > airspeed cases for both feasible and infeasible L1 bearings
+	 * -modificaitons introduced in [3].
+	 *
 	 * @return sets _lateral_accel setpoint
 	 */
 	void navigate_waypoints(const math::Vector<2> &vector_A, const math::Vector<2> &vector_B, const math::Vector<2> &vector_curr_position,
-			   const math::Vector<2> &ground_speed);
+			   const math::Vector<2> &ground_speed, const float airspeed, const float heading);
 
 
 	/**
 	 * Navigate on an orbit around a loiter waypoint.
 	 *
-	 * This allow orbits smaller than the L1 length,
-	 * this modification was introduced in [2].
+	 * -Allow orbits smaller than the L1 length by automatically reducing the L1 period
+	 * -Handle windspeed > airspeed cases for both feasible and infeasible L1 bearings
+	 * modifications were introduced in [3].
 	 *
 	 * @return sets _lateral_accel setpoint
 	 */
 	void navigate_loiter(const math::Vector<2> &vector_A, const math::Vector<2> &vector_curr_position, float radius, int8_t loiter_direction,
-			   const math::Vector<2> &ground_speed_vector);
+			   const math::Vector<2> &ground_speed_vector, const float airspeed, const float heading);
 
 
 	/**
@@ -274,7 +282,13 @@ private:
 	 */
 	math::Vector<2> get_local_planar_vector(const math::Vector<2> &origin, const math::Vector<2> &target) const;
 
-};
+	/**
+	 * Checks bearing feasibility in windspeed to airspeed ratios greater than 1
+	 *
+	 * @return feasibility boolean
+	 */
+	bool checkBearingTarget(float bearing, float bnd_min, float bnd_max);
 
+};
 
 #endif /* ECL_L1_POS_CONTROLLER_H */

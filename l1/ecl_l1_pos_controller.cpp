@@ -86,7 +86,7 @@ float ECL_L1_Pos_Controller::crosstrack_error(void)
 }
 
 void ECL_L1_Pos_Controller::navigate_waypoints(const math::Vector<2> &vector_A, const math::Vector<2> &vector_B, const math::Vector<2> &vector_curr_position,
-				       const math::Vector<2> &ground_speed_vector)
+				       const math::Vector<2> &ground_speed_vector, const float airspeed, const float heading)
 {
 
 	/* this follows the logic presented in [1] */
@@ -98,8 +98,8 @@ void ECL_L1_Pos_Controller::navigate_waypoints(const math::Vector<2> &vector_A, 
 	/* get the direction between the last (visited) and next waypoint */
 	_target_bearing = get_bearing_to_next_waypoint(vector_curr_position(0), vector_curr_position(1), vector_B(0), vector_B(1));
 
-	/* enforce a minimum ground speed of 0.1 m/s to avoid singularities */
-	float ground_speed = math::max(ground_speed_vector.length(), 0.1f);
+  /* calculate ground speed */
+  float ground_speed = ground_speed_vector.length();
 
 	/* calculate the L1 length required for the desired period */
 	_L1_distance = _L1_ratio * ground_speed;
@@ -139,102 +139,142 @@ void ECL_L1_Pos_Controller::navigate_waypoints(const math::Vector<2> &vector_A, 
 	// XXX this could probably also be based solely on the dot product
 	float AB_to_BP_bearing = atan2f(vector_B_to_P_unit % vector_AB, vector_B_to_P_unit * vector_AB);
 
-	/* extension from [2], fly directly to A */
-	if (distance_A_to_airplane > _L1_distance && alongTrackDist / math::max(distance_A_to_airplane , 1.0f) < -0.7071f) {
+	if (ground_speed < FLT_EPSILON) eta = 0.0f; // already facing wind
+	else {
+		/* extension from [2], fly directly to A */
+		if (distance_A_to_airplane > _L1_distance && alongTrackDist / math::max(distance_A_to_airplane , 1.0f) < -0.7071f) {
 
-		/* calculate eta to fly to waypoint A */
+			/* calculate eta to fly to waypoint A */
 
-		/* unit vector from waypoint A to current position */
-		math::Vector<2> vector_A_to_airplane_unit = vector_A_to_airplane.normalized();
-		/* velocity across / orthogonal to line */
-		xtrack_vel = ground_speed_vector % (-vector_A_to_airplane_unit);
-		/* velocity along line */
-		ltrack_vel = ground_speed_vector * (-vector_A_to_airplane_unit);
-		eta = atan2f(xtrack_vel, ltrack_vel);
-		/* bearing from current position to L1 point */
-		_nav_bearing = atan2f(-vector_A_to_airplane_unit(1) , -vector_A_to_airplane_unit(0));
+			/* unit vector from waypoint A to current position */
+			math::Vector<2> vector_A_to_airplane_unit = vector_A_to_airplane.normalized();
+			/* velocity across / orthogonal to line */
+			xtrack_vel = ground_speed_vector % (-vector_A_to_airplane_unit);
+			/* velocity along line */
+			ltrack_vel = ground_speed_vector * (-vector_A_to_airplane_unit);
+			eta = atan2f(xtrack_vel, ltrack_vel);
+			/* bearing from current position to L1 point */
+			_nav_bearing = atan2f(-vector_A_to_airplane_unit(1) , -vector_A_to_airplane_unit(0));
 
-	/*
-	 * If the AB vector and the vector from B to airplane point in the same
-	 * direction, we have missed the waypoint. At +- 90 degrees we are just passing it.
-	 */
-	} else if (fabsf(AB_to_BP_bearing) < math::radians(100.0f)) {
 		/*
-		 * Extension, fly back to waypoint.
-		 * 
-		 * This corner case is possible if the system was following
-		 * the AB line from waypoint A to waypoint B, then is
-		 * switched to manual mode (or otherwise misses the waypoint)
-		 * and behind the waypoint continues to follow the AB line.
+		 * If the AB vector and the vector from B to airplane point in the same
+		 * direction, we have missed the waypoint. At +- 90 degrees we are just passing it.
 		 */
+		} else if (fabsf(AB_to_BP_bearing) < math::radians(100.0f)) {
+			/*
+			 * Extension, fly back to waypoint.
+			 *
+			 * This corner case is possible if the system was following
+			 * the AB line from waypoint A to waypoint B, then is
+			 * switched to manual mode (or otherwise misses the waypoint)
+			 * and behind the waypoint continues to follow the AB line.
+			 */
 
-		/* calculate eta to fly to waypoint B */
-		
-		/* velocity across / orthogonal to line */
-		xtrack_vel = ground_speed_vector % (-vector_B_to_P_unit);
-		/* velocity along line */
-		ltrack_vel = ground_speed_vector * (-vector_B_to_P_unit);
-		eta = atan2f(xtrack_vel, ltrack_vel);
-		/* bearing from current position to L1 point */
-		_nav_bearing = atan2f(-vector_B_to_P_unit(1) , -vector_B_to_P_unit(0));
+			/* calculate eta to fly to waypoint B */
 
-	} else {
+			/* velocity across / orthogonal to line */
+			xtrack_vel = ground_speed_vector % (-vector_B_to_P_unit);
+			/* velocity along line */
+			ltrack_vel = ground_speed_vector * (-vector_B_to_P_unit);
+			eta = atan2f(xtrack_vel, ltrack_vel);
+			/* bearing from current position to L1 point */
+			_nav_bearing = atan2f(-vector_B_to_P_unit(1) , -vector_B_to_P_unit(0));
 
-		/* calculate eta to fly along the line between A and B */
+		} else {
 
-		/* velocity across / orthogonal to line */
-		xtrack_vel = ground_speed_vector % vector_AB;
-		/* velocity along line */
-		ltrack_vel = ground_speed_vector * vector_AB;
-		/* calculate eta2 (angle of velocity vector relative to line) */
-		float eta2 = atan2f(xtrack_vel, ltrack_vel);
-		/* calculate eta1 (angle to L1 point) */
-		float xtrackErr = vector_A_to_airplane % vector_AB;
-		float sine_eta1 = xtrackErr / math::max(_L1_distance , 0.1f);
-		/* limit output to 45 degrees */
-		sine_eta1 = math::constrain(sine_eta1, -0.7071f, 0.7071f); //sin(pi/4) = 0.7071
-		float eta1 = asinf(sine_eta1);
-		eta = eta1 + eta2;
-		/* bearing from current position to L1 point */
-		_nav_bearing = atan2f(vector_AB(1), vector_AB(0)) + eta1;
+			/* calculate eta to fly along the line between A and B */
 
+			/* velocity across / orthogonal to line */
+			xtrack_vel = ground_speed_vector % vector_AB;
+			/* velocity along line */
+			ltrack_vel = ground_speed_vector * vector_AB;
+			/* calculate eta2 (angle of velocity vector relative to line) */
+			float eta2 = atan2f(xtrack_vel, ltrack_vel);
+			/* calculate eta1 (angle to L1 point) */
+			float xtrackErr = vector_A_to_airplane % vector_AB;
+			/* limit L1 distance to xtrack error. --from [3]
+			 * effectively commands a perpendicular approach when:
+			 * - the aircraft is far from the track
+			 * - when the ground speed is  small
+			 * */
+			//if (_L1_distance < fabsf(xtrackErr)) _L1_distance = fabsf(xtrackErr); //not necessary if 45 degree approach imposed below
+			float sine_eta1 = xtrackErr / _L1_distance;
+			/* limit output to 45 degrees */
+			sine_eta1 = math::constrain(sine_eta1, -0.7071f, 0.7071f); //sin(pi/4) = 0.7071
+			float eta1 = asinf(sine_eta1);
+			eta = eta1 + eta2;
+			/* bearing from current position to L1 point */
+			_nav_bearing = atan2f(vector_AB(1), vector_AB(0)) + eta1;
+
+		}
+
+		/* extension from [3] */
+		/* calculate wind
+		 * NOTES:
+		 * -this assumes no sideslip
+		 * -should probably be done with an observer if no EKF estimates of these values are available
+		 * */
+		math::Vector<2> wind_speed_vector(ground_speed_vector(0) - airspeed * cosf(heading), ground_speed_vector(1) - airspeed * sinf(heading));
+		float wind_bearing = atan2f(wind_speed_vector(1), wind_speed_vector(0));
+		float wind_speed = wind_speed_vector.length();
+
+		if (wind_speed > airspeed) {
+			/* calculate ground tracking bounds */
+			float ground_speed_bearing_bnd = asinf(airspeed / wind_speed);
+			float ground_speed_bnd_min = _wrap_pi(wind_bearing - ground_speed_bearing_bnd);
+			float ground_speed_bnd_max = _wrap_pi(wind_bearing + ground_speed_bearing_bnd);
+
+			/* check L1 bearing feasibility */
+			if (checkBearingTarget(_nav_bearing, ground_speed_bnd_min, ground_speed_bnd_max)) {
+				/* bearing is feasible, but must command heading to avoid multiple ground speed vector solutions */
+				float eta_wind = _wrap_pi(_nav_bearing - wind_bearing);
+				float eta_airspeed = asinf(wind_speed * sinf(fabsf(eta_wind)) / airspeed);
+				float L1_heading = _wrap_pi(_nav_bearing + (fabsf(eta_wind) < FLT_EPSILON ? 0.0f : eta_wind / fabsf(eta_wind)) * eta_airspeed);
+				eta = _wrap_pi(L1_heading - heading);
+			} else {
+				/* turn into wind. now a heading controller */
+				_nav_bearing = _wrap_pi(wind_bearing - (fabsf(wind_bearing) < FLT_EPSILON ? 0.0f : wind_bearing / fabsf(wind_bearing)) * M_PI_F);
+				eta = _wrap_pi(_nav_bearing - heading);
+			}
+		}
 	}
 
 	/* limit angle to +-90 degrees */
 	eta = math::constrain(eta, (-M_PI_F) / 2.0f, +M_PI_F / 2.0f);
-	_lateral_accel = _K_L1 * ground_speed * ground_speed / _L1_distance * sinf(eta);
+	_lateral_accel = _K_L1 * ground_speed / _L1_ratio * sinf(eta);
 
 	/* flying to waypoints, not circling them */
 	_circle_mode = false;
 
 	/* the bearing angle, in NED frame */
-	_bearing_error = eta;
+	_bearing_error = eta; // NOTE: this actually becomes heading errors in the windy scenarios
 }
 
 void ECL_L1_Pos_Controller::navigate_loiter(const math::Vector<2> &vector_A, const math::Vector<2> &vector_curr_position, float radius, int8_t loiter_direction,
-				       const math::Vector<2> &ground_speed_vector)
+				       const math::Vector<2> &ground_speed_vector, const float airspeed, const float heading)
 {
-	/* the complete guidance logic in this section was proposed by [2] */
-
-	/* calculate the gains for the PD loop (circle tracking) */
-	float omega = (2.0f * M_PI_F / _L1_period);
-	float K_crosstrack = omega * omega;
-	float K_velocity = 2.0f * _L1_damping * omega;
+	/* from [1] and [2] and modified/extended by [3] */
+	float eta;
 
 	/* update bearing to next waypoint */
 	_target_bearing = get_bearing_to_next_waypoint(vector_curr_position(0), vector_curr_position(1), vector_A(0), vector_A(1));
 
-	/* ground speed, enforce minimum of 0.1 m/s to avoid singularities */
-	float ground_speed = math::max(ground_speed_vector.length() , 0.1f);
+	/* calculate ground speed */
+	float ground_speed = ground_speed_vector.length();
 
 	/* calculate the L1 length required for the desired period */
 	_L1_distance = _L1_ratio * ground_speed;
 
+	/* check circle tracking feasibility */
+	if (_L1_distance / radius > 1  && ground_speed > 0) {
+	    /* reduce period, recalculate L1 ratio & distance */
+	    _L1_ratio = radius / ground_speed;
+		_L1_distance = _L1_ratio * ground_speed;
+	}
+
 	/* calculate the vector from waypoint A to current position */
 	math::Vector<2> vector_A_to_airplane = get_local_planar_vector(vector_A, vector_curr_position);
-
 	math::Vector<2> vector_A_to_airplane_unit;
-
 	/* prevent NaN when normalizing */
 	if (vector_A_to_airplane.length() > FLT_EPSILON) {
 		/* store the normalized vector from waypoint A to current position */
@@ -243,68 +283,61 @@ void ECL_L1_Pos_Controller::navigate_loiter(const math::Vector<2> &vector_A, con
 		vector_A_to_airplane_unit = vector_A_to_airplane;
 	}
 
-	/* calculate eta angle towards the loiter center */
+	/* calculate the distance from the aircraft to the circle */
+	float dist_to_circle = vector_A_to_airplane.length() - radius;
 
-	/* velocity across / orthogonal to line from waypoint to current position */
-	float xtrack_vel_center = vector_A_to_airplane_unit % ground_speed_vector;
-	/* velocity along line from waypoint to current position */
-	float ltrack_vel_center = - (ground_speed_vector * vector_A_to_airplane_unit);
-	float eta = atan2f(xtrack_vel_center, ltrack_vel_center);
-	/* limit eta to 90 degrees */
-	eta = math::constrain(eta, -M_PI_F / 2.0f, +M_PI_F / 2.0f);
-
-	/* calculate the lateral acceleration to capture the center point */
-	float lateral_accel_sp_center = _K_L1 * ground_speed * ground_speed / _L1_distance * sinf(eta);
-
-	/* for PD control: Calculate radial position and velocity errors */
-
-	/* radial velocity error */
-	float xtrack_vel_circle = -ltrack_vel_center;
-	/* radial distance from the loiter circle (not center) */
-	float xtrack_err_circle = vector_A_to_airplane.length() - radius;
-
-	/* cross track error for feedback */
-	_crosstrack_error = xtrack_err_circle;
-
-	/* calculate PD update to circle waypoint */
-	float lateral_accel_sp_circle_pd = (xtrack_err_circle * K_crosstrack + xtrack_vel_circle * K_velocity);
-
-	/* calculate velocity on circle / along tangent */
-	float tangent_vel = xtrack_vel_center * loiter_direction;
-
-	/* prevent PD output from turning the wrong way */
-	if (tangent_vel < 0.0f) {
-		lateral_accel_sp_circle_pd = math::max(lateral_accel_sp_circle_pd , 0.0f);
+	/* check that L1 vector does not exceed reasonable bounds */
+	if (_L1_distance >= (2.0f * radius + dist_to_circle)) {
+		_L1_distance = 2.0f * radius + dist_to_circle;
+	} else if (_L1_distance < fabsf(dist_to_circle)) {
+		_L1_distance = fabsf(dist_to_circle);
 	}
 
-	/* calculate centripetal acceleration setpoint */
-	float lateral_accel_sp_circle_centripetal = tangent_vel * tangent_vel / math::max((0.5f * radius) , (radius + xtrack_err_circle));
+	if (ground_speed < FLT_EPSILON) eta = 0.0f; // already facing wind
+	else {
+		/* calculate L1 bearing */
+		float cos_gam = (_L1_distance * _L1_distance + (dist_to_circle + radius) * (dist_to_circle + radius) - radius * radius)
+				/ 2.0f / _L1_distance / (dist_to_circle + radius);
+		cos_gam = math::constrain(cos_gam, -1.0f, 1.0f);
+		float gam = acosf(cos_gam);
+		_nav_bearing = _wrap_pi(atan2f(-vector_A_to_airplane(1), -vector_A_to_airplane(0)) - float(loiter_direction) * gam);
 
-	/* add PD control on circle and centripetal acceleration for total circle command */
-	float lateral_accel_sp_circle = loiter_direction * (lateral_accel_sp_circle_pd + lateral_accel_sp_circle_centripetal);
+		/* estimate wind */ //NOTE: this assumes no sideslip
+		math::Vector<2> wind_speed_vector(ground_speed_vector(0) - airspeed * cosf(heading), ground_speed_vector(1) - airspeed * sinf(heading));
+		float wind_bearing = atan2f(wind_speed_vector(1), wind_speed_vector(0));
+		float wind_speed = wind_speed_vector.length();
 
-	/*
-	 * Switch between circle (loiter) and capture (towards waypoint center) mode when
-	 * the commands switch over. Only fly towards waypoint if outside the circle.
-	 */
+		/* calculate error angle eta */
+		if (wind_speed > airspeed) {
+			/* calculate ground tracking bounds */
+			float ground_speed_bearing_bnd = asinf(airspeed / wind_speed);
+			float ground_speed_bnd_min = _wrap_pi(wind_bearing - ground_speed_bearing_bnd);
+			float ground_speed_bnd_max = _wrap_pi(wind_bearing + ground_speed_bearing_bnd);
 
-	// XXX check switch over
-	if ((lateral_accel_sp_center < lateral_accel_sp_circle && loiter_direction > 0 && xtrack_err_circle > 0.0f) ||
-		(lateral_accel_sp_center > lateral_accel_sp_circle && loiter_direction < 0 && xtrack_err_circle > 0.0f)) {
-		_lateral_accel = lateral_accel_sp_center;
-		_circle_mode = false;
-		/* angle between requested and current velocity vector */
-		_bearing_error = eta;
-		/* bearing from current position to L1 point */
-		_nav_bearing = atan2f(-vector_A_to_airplane_unit(1) , -vector_A_to_airplane_unit(0));
-
-	} else {
-		_lateral_accel = lateral_accel_sp_circle;
-		_circle_mode = true;
-		_bearing_error = 0.0f;
-		/* bearing from current position to L1 point */
-		_nav_bearing = atan2f(-vector_A_to_airplane_unit(1) , -vector_A_to_airplane_unit(0));
+			/* check L1 bearing feasibility */
+			if (checkBearingTarget(_nav_bearing, ground_speed_bnd_min, ground_speed_bnd_max)) {
+				/* bearing is feasible, but must command heading to avoid multiple ground speed vector solutions */
+				float eta_wind = _wrap_pi(_nav_bearing - wind_bearing);
+				float eta_airspeed = asinf(wind_speed * sinf(fabsf(eta_wind)) / airspeed);
+				float L1_heading = _wrap_pi(_nav_bearing + (fabsf(eta_wind) < FLT_EPSILON ? 0.0f : eta_wind / fabsf(eta_wind)) * eta_airspeed);
+				eta = _wrap_pi(L1_heading - heading);
+			} else {
+				/* turn into wind. now a heading controller */
+				_nav_bearing = _wrap_pi(wind_bearing - (fabsf(wind_bearing) < FLT_EPSILON ? 0.0f : wind_bearing / fabsf(wind_bearing)) * M_PI_F);
+				eta = _wrap_pi(_nav_bearing - heading);
+			}
+		} else {
+			float ground_speed_bearing = atan2f(ground_speed_vector(1), ground_speed_vector(0));
+			eta = _wrap_pi(_nav_bearing - ground_speed_bearing);
+		}
 	}
+
+	/* limit angle to +-90 degrees */
+	eta = math::constrain(eta, (-M_PI_F) / 2.0f, +M_PI_F / 2.0f);
+	_lateral_accel = _K_L1 * ground_speed / _L1_ratio * sinf(eta);
+
+	_circle_mode = true;
+	_bearing_error = eta; // NOTE: this actually becomes heading errors in the windy scenarios
 }
 
 
@@ -370,3 +403,13 @@ math::Vector<2> ECL_L1_Pos_Controller::get_local_planar_vector(const math::Vecto
 	return out * static_cast<float>(CONSTANTS_RADIUS_OF_EARTH);
 }
 
+bool ECL_L1_Pos_Controller::checkBearingTarget(float bearing, float bnd_min, float bnd_max)
+{
+	/* ASSUMES POSITIVE (CLOCKWISE) BND SWEEP FROM MIN TO MAX AND ALL BEARINGS BETWEEN -PI AND PI */
+	if (bnd_min > bnd_max) {
+	    return (bearing >= -M_PI_F && bearing <= bnd_max) || (bearing >= bnd_min && bearing <= M_PI_F);
+	}
+	else {
+	    return (bearing >= bnd_min && bearing <= bnd_max);
+	}
+}
