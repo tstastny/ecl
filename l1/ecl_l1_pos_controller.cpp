@@ -91,7 +91,7 @@ void ECL_L1_Pos_Controller::navigate_waypoints(const math::Vector<2> &vector_A, 
 
 	/* this follows the logic presented in [1] */
 
-	float eta;
+	float eta = 0.0f;
 	float xtrack_vel;
 	float ltrack_vel;
 
@@ -255,7 +255,7 @@ void ECL_L1_Pos_Controller::navigate_loiter(const math::Vector<2> &vector_A, con
 				       const math::Vector<2> &ground_speed_vector, float airspeed, const float heading)
 {
 	/* from [1] and [2] and modified/extended by [3] */
-	float eta;
+	float eta = 0.0f;
 
 	/* update bearing to next waypoint */
 	_target_bearing = get_bearing_to_next_waypoint(vector_curr_position(0), vector_curr_position(1), vector_A(0), vector_A(1));
