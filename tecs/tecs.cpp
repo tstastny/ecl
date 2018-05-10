@@ -226,40 +226,50 @@ void TECS::_update_speed_setpoint()
 
 void TECS::_update_height_setpoint(float desired, float state)
 {
-	// Detect first time through and initialize previous value to demand
-	if (ISFINITE(desired) && fabsf(_hgt_setpoint_in_prev) < 0.1f) {
-		_hgt_setpoint_in_prev = desired;
-	}
-
-	// Apply a 2 point moving average to demanded height to reduce
-	// intersampling noise effects.
-	if (ISFINITE(desired)) {
-		_hgt_setpoint = 0.5f * (desired + _hgt_setpoint_in_prev);
+	if (_tecs_mode == ECL_TECS_MODE_ALTRATE) {
+		_hgt_setpoint = state;
+		_hgt_setpoint_adj_prev = state;
+		_hgt_setpoint_adj = state;
+		_hgt_setpoint_prev = state;
+		_hgt_setpoint_in_prev = state;
+		_hgt_rate_setpoint = desired;
 
 	} else {
-		_hgt_setpoint = _hgt_setpoint_in_prev;
+		// Detect first time through and initialize previous value to demand
+		if (ISFINITE(desired) && fabsf(_hgt_setpoint_in_prev) < 0.1f) {
+			_hgt_setpoint_in_prev = desired;
+		}
+
+		// Apply a 2 point moving average to demanded height to reduce
+		// intersampling noise effects.
+		if (ISFINITE(desired)) {
+			_hgt_setpoint = 0.5f * (desired + _hgt_setpoint_in_prev);
+
+		} else {
+			_hgt_setpoint = _hgt_setpoint_in_prev;
+		}
+
+		_hgt_setpoint_in_prev = _hgt_setpoint;
+
+		// Apply a rate limit to respect vehicle performance limitations
+		if ((_hgt_setpoint - _hgt_setpoint_prev) > (_max_climb_rate * _dt)) {
+			_hgt_setpoint = _hgt_setpoint_prev + _max_climb_rate * _dt;
+
+		} else if ((_hgt_setpoint - _hgt_setpoint_prev) < (-_max_sink_rate * _dt)) {
+			_hgt_setpoint = _hgt_setpoint_prev - _max_sink_rate * _dt;
+		}
+
+		_hgt_setpoint_prev = _hgt_setpoint;
+
+		// Apply a first order noise filter
+		_hgt_setpoint_adj = 0.1f * _hgt_setpoint + 0.9f * _hgt_setpoint_adj_prev;
+
+		// Calculate the demanded climb rate proportional to height error plus a feedforward term to provide
+		// tight tracking during steady climb and descent manoeuvres.
+		_hgt_rate_setpoint = (_hgt_setpoint_adj - state) * _height_error_gain + _height_setpoint_gain_ff *
+				     (_hgt_setpoint_adj - _hgt_setpoint_adj_prev) / _dt;
+		_hgt_setpoint_adj_prev = _hgt_setpoint_adj;
 	}
-
-	_hgt_setpoint_in_prev = _hgt_setpoint;
-
-	// Apply a rate limit to respect vehicle performance limitations
-	if ((_hgt_setpoint - _hgt_setpoint_prev) > (_max_climb_rate * _dt)) {
-		_hgt_setpoint = _hgt_setpoint_prev + _max_climb_rate * _dt;
-
-	} else if ((_hgt_setpoint - _hgt_setpoint_prev) < (-_max_sink_rate * _dt)) {
-		_hgt_setpoint = _hgt_setpoint_prev - _max_sink_rate * _dt;
-	}
-
-	_hgt_setpoint_prev = _hgt_setpoint;
-
-	// Apply a first order noise filter
-	_hgt_setpoint_adj = 0.1f * _hgt_setpoint + 0.9f * _hgt_setpoint_adj_prev;
-
-	// Calculate the demanded climb rate proportional to height error plus a feedforward term to provide
-	// tight tracking during steady climb and descent manoeuvres.
-	_hgt_rate_setpoint = (_hgt_setpoint_adj - state) * _height_error_gain + _height_setpoint_gain_ff *
-			     (_hgt_setpoint_adj - _hgt_setpoint_adj_prev) / _dt;
-	_hgt_setpoint_adj_prev = _hgt_setpoint_adj;
 
 	// Limit the rate of change of height demand to respect vehicle performance limits
 	if (_hgt_rate_setpoint > _max_climb_rate) {
@@ -339,11 +349,11 @@ void TECS::_update_throttle_setpoint(const float throttle_cruise, const matrix::
 
 		if (STE_rate_setpoint >= 0) {
 			// throttle is between cruise and maximum
-			throttle_predicted = throttle_cruise + STE_rate_setpoint / _STE_rate_max * (_throttle_setpoint_max - throttle_cruise);
+			throttle_predicted = throttle_cruise + _throttle_feedforward_gain * STE_rate_setpoint / _STE_rate_max * (_throttle_setpoint_max - throttle_cruise);
 
 		} else {
 			// throttle is between cruise and minimum
-			throttle_predicted = throttle_cruise + STE_rate_setpoint / _STE_rate_min * (_throttle_setpoint_min - throttle_cruise);
+			throttle_predicted = throttle_cruise + _throttle_feedforward_gain * STE_rate_setpoint / _STE_rate_min * (_throttle_setpoint_min - throttle_cruise);
 
 		}
 
@@ -606,10 +616,10 @@ void TECS::update_pitch_throttle(const matrix::Dcmf &rotMat, float pitch, float 
 	_update_STE_rate_lim();
 
 	// Detect an underspeed condition
-	_detect_underspeed();
+	if (_tecs_mode != ECL_TECS_MODE_ALTRATE) _detect_underspeed();
 
 	// Detect an uncommanded descent caused by an unachievable airspeed demand
-	_detect_uncommanded_descent();
+	if (_tecs_mode != ECL_TECS_MODE_ALTRATE) _detect_uncommanded_descent();
 
 	// Calculate the demanded true airspeed
 	_update_speed_setpoint();
@@ -639,7 +649,7 @@ void TECS::update_pitch_throttle(const matrix::Dcmf &rotMat, float pitch, float 
 	} else if (_climbout_mode_active) {
 		_tecs_mode = ECL_TECS_MODE_CLIMBOUT;
 
-	} else {
+	} else if (_tecs_mode != ECL_TECS_MODE_ALTRATE) {
 		// This is the default operation mode
 		_tecs_mode = ECL_TECS_MODE_NORMAL;
 	}

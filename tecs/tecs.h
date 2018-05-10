@@ -95,7 +95,8 @@ public:
 		ECL_TECS_MODE_NORMAL = 0,
 		ECL_TECS_MODE_UNDERSPEED,
 		ECL_TECS_MODE_BAD_DESCENT,
-		ECL_TECS_MODE_CLIMBOUT
+		ECL_TECS_MODE_CLIMBOUT,
+		ECL_TECS_MODE_ALTRATE
 	};
 
 	void set_detect_underspeed_enabled(bool enabled) { _detect_underspeed_enabled = enabled; }
@@ -124,9 +125,14 @@ public:
 
 	void set_time_const_throt(float time_const_throt) { _throttle_time_constant = time_const_throt; }
 	void set_throttle_damp(float throttle_damp) { _throttle_damping_gain = throttle_damp; }
+	void set_throttle_ff(float throttle_ff) { _throttle_feedforward_gain = throttle_ff; }
 	void set_throttle_slewrate(float slewrate) { _throttle_slewrate = slewrate; }
 
 	void set_roll_throttle_compensation(float compensation) { _load_factor_correction = compensation; }
+
+	void enable_altrate_mode(bool en) {
+		if (en) _tecs_mode = ECL_TECS_MODE_ALTRATE;
+	};
 
 	// TECS status
 	uint64_t timestamp() { return _pitch_update_timestamp; }
@@ -192,6 +198,7 @@ private:
 	float _throttle_time_constant{8.0f};				///< control time constant used by the throttle demand calculation (sec)
 	float _pitch_damping_gain{0.0f};				///< damping gain of the pitch demand calculation (sec)
 	float _throttle_damping_gain{0.0f};				///< damping gain of the throttle demand calculation (sec)
+	float _throttle_feedforward_gain{1.0f};				///< feedforward gain of the throttle demand calculation
 	float _integrator_gain{0.0f};					///< integrator gain used by the throttle and pitch demand calculation
 	float _vert_accel_limit{0.0f};					///< magnitude of the maximum vertical acceleration allowed (m/sec**2)
 	float _load_factor_correction{0.0f};				///< gain from normal load factor increase to total energy rate demand (m**2/sec**3)
