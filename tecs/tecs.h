@@ -114,6 +114,7 @@ public:
 
 	void set_indicated_airspeed_max(float airspeed) { _indicated_airspeed_max = airspeed; }
 	void set_indicated_airspeed_min(float airspeed) { _indicated_airspeed_min = airspeed; }
+	void set_indicated_airspeed_osp(float airspeed) { _indicated_airspeed_osp = airspeed; }
 
 	void set_pitch_damping(float damping) { _pitch_damping_gain = damping; }
 	void set_vertical_accel_limit(float limit) { _vert_accel_limit = limit; }
@@ -125,6 +126,7 @@ public:
 	void set_time_const_throt(float time_const_throt) { _throttle_time_constant = time_const_throt; }
 	void set_throttle_damp(float throttle_damp) { _throttle_damping_gain = throttle_damp; }
 	void set_throttle_slewrate(float slewrate) { _throttle_slewrate = slewrate; }
+	void set_throttle_setpoint_osp(float throttle) { _throttle_setpoint_osp = throttle; }
 
 	void set_roll_throttle_compensation(float compensation) { _load_factor_correction = compensation; }
 
@@ -200,8 +202,10 @@ private:
 	float _height_setpoint_gain_ff{0.0f};				///< gain from height demand derivative to demanded climb rate
 	float _speed_error_gain{0.0f};					///< gain from speed error to demanded speed rate (1/sec)
 	float _indicated_airspeed_min{3.0f};				///< equivalent airspeed demand lower limit (m/sec)
-	float _indicated_airspeed_max{30.0f};				///< equivalent airspeed demand upper limit (m/sec)
+	float _indicated_airspeed_max{30.0f};				///< equivalent airspeed demand upper limit for nominal flight (m/sec)
+	float _indicated_airspeed_osp{30.0f};				///< equivalent airspeed demand upper limit for over-speed commands (m/sec)
 	float _throttle_slewrate{0.0f};					///< throttle demand slew rate limit (1/sec)
+	float _throttle_setpoint_osp{1.0f};  		///< throttle setting at the maximum allowable over-speed reference (m/sec)
 
 	// controller outputs
 	float _throttle_setpoint{0.0f};					///< normalized throttle demand (0..1)
@@ -223,8 +227,9 @@ private:
 
 	// speed demand calculations
 	float _EAS{0.0f};						///< equivalent airspeed (m/sec)
-	float _TAS_max{30.0f};						///< true airpeed demand upper limit (m/sec)
+	float _TAS_max{30.0f};						///< true airpeed demand upper limit for nominal flight (m/sec)
 	float _TAS_min{3.0f};						///< true airpeed demand lower limit (m/sec)
+	float _TAS_osp{30.0f};			///< true airpeed demand upper limit for over-speed commands (m/sec)
 	float _TAS_setpoint{0.0f};					///< current airpeed demand (m/sec)
 	float _TAS_setpoint_last{0.0f};					///< previous true airpeed demand (m/sec)
 	float _EAS_setpoint{0.0f};					///< Equivalent airspeed demand (m/sec)

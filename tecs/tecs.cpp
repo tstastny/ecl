@@ -157,6 +157,7 @@ void TECS::_update_speed_states(float airspeed_setpoint, float indicated_airspee
 	_TAS_setpoint  = _EAS_setpoint * EAS2TAS;
 	_TAS_max   = _indicated_airspeed_max * EAS2TAS;
 	_TAS_min   = _indicated_airspeed_min * EAS2TAS;
+	_TAS_osp	 = _indicated_airspeed_osp * EAS2TAS;
 
 	// If airspeed measurements are not being used, fix the airspeed estimate to halfway between
 	// min and max limits
@@ -204,14 +205,14 @@ void TECS::_update_speed_setpoint()
 		_TAS_setpoint = _TAS_min;
 	}
 
-	_TAS_setpoint = constrain(_TAS_setpoint, _TAS_min, _TAS_max);
+	_TAS_setpoint = constrain(_TAS_setpoint, _TAS_min, _TAS_osp);
 
 	// Calculate limits for the demanded rate of change of speed based on physical performance limits
 	// with a 50% margin to allow the total energy controller to correct for errors.
 	float velRateMax = 0.5f * _STE_rate_max / _tas_state;
 	float velRateMin = 0.5f * _STE_rate_min / _tas_state;
 
-	_TAS_setpoint_adj = constrain(_TAS_setpoint, _TAS_min, _TAS_max);
+	_TAS_setpoint_adj = constrain(_TAS_setpoint, _TAS_min, _TAS_osp);
 
 	// calculate the demanded rate of change of speed proportional to speed error
 	// and apply performance limits
@@ -330,6 +331,7 @@ void TECS::_update_throttle_setpoint(const float throttle_cruise, const matrix::
 		// Specific total energy rate = _STE_rate_max is achieved when throttle is set to _throttle_setpoint_max
 		// Specific total energy rate = 0 at cruise throttle
 		// Specific total energy rate = _STE_rate_min is achieved when throttle is set to _throttle_setpoint_min
+		// _TAS_osp is acheived when in level flight and throttle is set to _throttle_setpoint_osp
 		float throttle_predicted = 0.0f;
 
 		if (STE_rate_setpoint >= 0) {
@@ -342,12 +344,18 @@ void TECS::_update_throttle_setpoint(const float throttle_cruise, const matrix::
 
 		}
 
+		// Increase throttle allowance for demanded over-speed
+		float throttle_osp = 0.0f;
+		if (_TAS_osp > _TAS_max) {
+			throttle_osp = constrain((_TAS_setpoint_adj - _TAS_max)/(_TAS_osp - _TAS_max), 0.0f, 1.0f) * (_throttle_setpoint_osp - _throttle_setpoint_max);
+		}
+
 		// Calculate gain scaler from specific energy error to throttle
 		float STE_to_throttle = 1.0f / (_throttle_time_constant * (_STE_rate_max - _STE_rate_min));
 
 		// Add proportional and derivative control feedback to the predicted throttle and constrain to throttle limits
-		_throttle_setpoint = (_STE_error + _STE_rate_error * _throttle_damping_gain) * STE_to_throttle + throttle_predicted;
-		_throttle_setpoint = constrain(_throttle_setpoint, _throttle_setpoint_min, _throttle_setpoint_max);
+		_throttle_setpoint = (_STE_error + _STE_rate_error * _throttle_damping_gain) * STE_to_throttle + throttle_predicted + throttle_osp;
+		_throttle_setpoint = constrain(_throttle_setpoint, _throttle_setpoint_min, _throttle_setpoint_max + throttle_osp);
 
 		// Rate limit the throttle demand
 		if (fabsf(_throttle_slewrate) > 0.01f) {
@@ -361,7 +369,7 @@ void TECS::_update_throttle_setpoint(const float throttle_cruise, const matrix::
 		if (_integrator_gain > 0.0f) {
 			// Calculate throttle integrator state upper and lower limits with allowance for
 			// 10% throttle saturation to accommodate noise on the demand.
-			float integ_state_max = _throttle_setpoint_max - _throttle_setpoint + 0.1f;
+			float integ_state_max = (_throttle_setpoint_max + throttle_osp) - _throttle_setpoint + 0.1f;
 			float integ_state_min = _throttle_setpoint_min - _throttle_setpoint - 0.1f;
 
 			// Calculate a throttle demand from the integrated total energy error
@@ -392,7 +400,7 @@ void TECS::_update_throttle_setpoint(const float throttle_cruise, const matrix::
 
 		}
 
-		_throttle_setpoint = constrain(_throttle_setpoint, _throttle_setpoint_min, _throttle_setpoint_max);
+		_throttle_setpoint = constrain(_throttle_setpoint, _throttle_setpoint_min, _throttle_setpoint_max + throttle_osp);
 	}
 }
 
